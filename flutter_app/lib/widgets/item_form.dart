@@ -112,7 +112,7 @@ class _ItemFormState extends State<ItemForm> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _selectedCategoryId,
+            initialValue: _selectedCategoryId,
             decoration: const InputDecoration(labelText: 'Category'),
             items: widget.categories
                 .map((c) =>
