@@ -5,7 +5,8 @@ import '../models/item.dart';
 import '../models/category.dart';
 import 'location_service.dart';
 
-const backendUrl = String.fromEnvironment('BACKEND_URL');
+const backendUrl = String.fromEnvironment('BACKEND_URL',
+    defaultValue: 'https://effict-personal-api.onrender.com');
 
 class ApiService {
   final LocationService _locationService = LocationService();
