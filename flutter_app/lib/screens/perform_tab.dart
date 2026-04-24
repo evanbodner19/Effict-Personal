@@ -34,15 +34,31 @@ class PerformTab extends ConsumerWidget {
               return TaskCard(
                 item: item,
                 onComplete: () async {
-                  final api = ref.read(apiServiceProvider);
-                  await api.completeItem(item.id);
-                  ref.invalidate(topItemsProvider);
-                  ref.invalidate(categoriesProvider);
+                  try {
+                    final api = ref.read(apiServiceProvider);
+                    await api.completeItem(item.id);
+                    ref.invalidate(topItemsProvider);
+                    ref.invalidate(categoriesProvider);
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$e')),
+                      );
+                    }
+                  }
                 },
                 onDefer: () async {
-                  final api = ref.read(apiServiceProvider);
-                  await api.deferItem(item.id);
-                  ref.invalidate(topItemsProvider);
+                  try {
+                    final api = ref.read(apiServiceProvider);
+                    await api.deferItem(item.id);
+                    ref.invalidate(topItemsProvider);
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$e')),
+                      );
+                    }
+                  }
                 },
               );
             },

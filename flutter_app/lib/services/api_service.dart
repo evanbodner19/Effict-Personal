@@ -27,8 +27,7 @@ class ApiService {
   String _locationParams() {
     final pos = _locationService.cachedPosition;
     if (pos == null) return '';
-    final tz = DateTime.now().timeZoneName;
-    return '?lat=${pos.latitude}&lng=${pos.longitude}&tz=$tz';
+    return '?lat=${pos.latitude}&lng=${pos.longitude}&tz=America/Phoenix';
   }
 
   Future<Map<String, dynamic>> syncAll() async {
@@ -47,6 +46,9 @@ class ApiService {
       Uri.parse('$backendUrl/api/top'),
       headers: headers,
     );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to get top items: ${resp.body}');
+    }
     final list = jsonDecode(resp.body) as List;
     return list.map((j) => Item.fromJson(j)).toList();
   }
@@ -57,24 +59,33 @@ class ApiService {
       Uri.parse('$backendUrl/api/categories'),
       headers: headers,
     );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to get categories: ${resp.body}');
+    }
     final list = jsonDecode(resp.body) as List;
     return list.map((j) => Category.fromJson(j)).toList();
   }
 
   Future<void> completeItem(String itemId) async {
     final headers = await _headers();
-    await http.post(
+    final resp = await http.post(
       Uri.parse('$backendUrl/api/items/$itemId/complete'),
       headers: headers,
     );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to complete item: ${resp.body}');
+    }
   }
 
   Future<void> deferItem(String itemId) async {
     final headers = await _headers();
-    await http.post(
+    final resp = await http.post(
       Uri.parse('$backendUrl/api/items/$itemId/defer'),
       headers: headers,
     );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to defer item: ${resp.body}');
+    }
   }
 
   Future<void> createItem(Map<String, dynamic> data) async {

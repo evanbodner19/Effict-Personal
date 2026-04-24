@@ -84,39 +84,49 @@ def delete_item(item_id: str, user_id: str = Depends(get_current_user_id)):
 
 @router.post("/{item_id}/complete")
 def complete_item(item_id: str, user_id: str = Depends(get_current_user_id)):
-    supabase = get_supabase()
-    now = datetime.now(timezone.utc).isoformat()
+    import traceback as tb
+    try:
+        supabase = get_supabase()
+        now = datetime.now(timezone.utc).isoformat()
 
-    # Fetch the item
-    resp = (
-        supabase.table("items")
-        .select("*")
-        .eq("id", item_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    if not resp.data:
-        raise HTTPException(status_code=404, detail="Item not found")
+        # Fetch the item
+        resp = (
+            supabase.table("items")
+            .select("*")
+            .eq("id", item_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Item not found")
 
-    item = resp.data[0]
-    is_recurring = item.get("cadence_days") or item.get("frequency_target")
+        item = resp.data[0]
+        is_recurring = item.get("cadence_days") or item.get("frequency_target")
 
-    if is_recurring:
-        # Recurring: update last_touched_at, insert completion
-        supabase.table("items").update(
-            {"last_touched_at": now, "defer_count": 0}
-        ).eq("id", item_id).execute()
-        supabase.table("completions").insert(
-            {"user_id": user_id, "item_id": item_id, "completed_at": now}
-        ).execute()
-    else:
-        # One-time: set completed_at
-        supabase.table("items").update({"completed_at": now}).eq(
-            "id", item_id
-        ).execute()
+        if is_recurring:
+            # Recurring: update last_touched_at, insert completion
+            supabase.table("items").update(
+                {"last_touched_at": now, "defer_count": 0}
+            ).eq("id", item_id).execute()
+            supabase.table("completions").insert(
+                {"user_id": user_id, "item_id": item_id, "completed_at": now}
+            ).execute()
+        else:
+            # One-time: set completed_at
+            supabase.table("items").update({"completed_at": now}).eq(
+                "id", item_id
+            ).execute()
 
-    rescore_all(supabase, user_id)
-    return {"ok": True}
+        if is_recurring:
+            # Rescore just this item
+            from backend.scoring import rescore_item
+            rescore_item(supabase, item_id, user_id)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb.print_exc()
+        return {"detail": str(e), "traceback": tb.format_exc()}
 
 
 @router.post("/{item_id}/defer")
@@ -143,5 +153,6 @@ def defer_item(item_id: str, user_id: str = Depends(get_current_user_id)):
         {"defer_count": new_count, "deferred_until": deferred_until.isoformat()}
     ).eq("id", item_id).execute()
 
-    rescore_all(supabase, user_id)
+    from backend.scoring import rescore_item
+    rescore_item(supabase, item_id, user_id)
     return {"ok": True, "deferred_until": deferred_until.isoformat()}

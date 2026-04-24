@@ -49,25 +49,37 @@ class TaskCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              item.title,
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Text(
+                  item.priorityScore.toStringAsFixed(1),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                IconButton.filled(
+                FilledButton.tonalIcon(
                   onPressed: onDefer,
                   icon: const Icon(Icons.access_time),
-                  tooltip: 'Defer',
+                  label: const Text('Defer'),
                 ),
                 const SizedBox(width: 8),
-                IconButton.filled(
+                FilledButton.icon(
                   onPressed: onComplete,
                   icon: const Icon(Icons.check),
-                  tooltip: 'Complete',
-                  style: IconButton.styleFrom(
+                  label: const Text('Done'),
+                  style: FilledButton.styleFrom(
                     backgroundColor: Colors.green,
                   ),
                 ),
