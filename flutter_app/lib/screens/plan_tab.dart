@@ -29,9 +29,22 @@ class PlanTab extends ConsumerWidget {
                     subtitle: item.dueDate != null
                         ? Text('Due: ${item.dueDate}')
                         : null,
-                    trailing: item.isProject
-                        ? const Icon(Icons.folder, size: 18)
-                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (item.isProject)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 8),
+                            child: Icon(Icons.folder, size: 18),
+                          ),
+                        Text(
+                          item.priorityScore.toStringAsFixed(1),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ],
+                    ),
                     onTap: () => _showEditSheet(context, ref, item, categories),
                   );
                 }).toList(),

@@ -78,7 +78,7 @@ class ApiService {
     }
   }
 
-  Future<void> deferItem(String itemId) async {
+  Future<Map<String, dynamic>> deferItem(String itemId) async {
     final headers = await _headers();
     final resp = await http.post(
       Uri.parse('$backendUrl/api/items/$itemId/defer'),
@@ -87,6 +87,7 @@ class ApiService {
     if (resp.statusCode != 200) {
       throw Exception('Failed to defer item: ${resp.body}');
     }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
   Future<void> createItem(Map<String, dynamic> data) async {

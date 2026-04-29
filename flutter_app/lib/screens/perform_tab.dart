@@ -50,8 +50,13 @@ class PerformTab extends ConsumerWidget {
                 onDefer: () async {
                   try {
                     final api = ref.read(apiServiceProvider);
-                    await api.deferItem(item.id);
+                    final result = await api.deferItem(item.id);
                     ref.invalidate(topItemsProvider);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(_deferMessage(result))),
+                      );
+                    }
                   } catch (e) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -68,5 +73,20 @@ class PerformTab extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
       ),
     );
+  }
+
+  String _deferMessage(Map<String, dynamic> result) {
+    final until = DateTime.tryParse(result['deferred_until'] ?? '')?.toLocal();
+    if (until == null) return 'Deferred';
+    final now = DateTime.now();
+    final diff = until.difference(now);
+    final hours = diff.inHours;
+    final mins = diff.inMinutes.remainder(60);
+    final duration = hours > 0 ? '${hours}h ${mins}m' : '${diff.inMinutes}m';
+    final hour = until.hour;
+    final ampm = hour >= 12 ? 'PM' : 'AM';
+    final h12 = hour % 12 == 0 ? 12 : hour % 12;
+    final mm = until.minute.toString().padLeft(2, '0');
+    return 'Deferred for $duration (until $h12:$mm $ampm)';
   }
 }
