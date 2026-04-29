@@ -40,21 +40,27 @@ def calculate_score(
     external_data: Optional[dict],
     is_baseline: bool,
     now: datetime,
+    _debug_title: Optional[str] = None,
 ) -> float:
     today = date.today()
 
+    def _gate(reason):
+        if _debug_title is not None:
+            print(f"[score] {_debug_title!r} -> 0 ({reason})")
+        return 0
+
     # Gating rules
     if start_date and today < start_date:
-        return 0
+        return _gate(f"start_date {start_date} > today {today}")
 
     if deferred_until and now < deferred_until:
-        return 0
+        return _gate(f"deferred_until {deferred_until} > now {now}")
 
     if not _is_in_time_window(now, window_start, window_end):
-        return 0
+        return _gate(f"outside window {window_start}-{window_end} now={now.time()}")
 
     if frequency_target and completions_in_window >= frequency_target:
-        return 0
+        return _gate(f"freq met {completions_in_window}/{frequency_target}")
 
     # Urgency
     urgency = 0.0
@@ -88,7 +94,14 @@ def calculate_score(
 
     # Total
     raw = BASE_SCORE + urgency + staleness + freq_deficit + avoidance
-    return category_weight(rank) * raw
+    score = category_weight(rank) * raw
+    if _debug_title is not None:
+        print(
+            f"[score] {_debug_title!r} rank={rank} u={urgency:.2f} "
+            f"s={staleness:.2f} fd={freq_deficit:.2f} av={avoidance:.2f} "
+            f"raw={raw:.2f} -> {score:.2f}"
+        )
+    return score
 
 
 def rescore_item(supabase, item_id: str, user_id: str, lat: float = None, lng: float = None, tz: str = None):
@@ -215,78 +228,86 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
 
     now_iso = now.isoformat()
 
+    scored = 0
+    failed = 0
     for item in items_resp.data:
-        cat = categories.get(item["category_id"])
-        if not cat:
-            continue
+        try:
+            cat = categories.get(item["category_id"])
+            if not cat:
+                print(f"[score] {item.get('title')!r} skipped: no category {item.get('category_id')}")
+                continue
 
-        rank = cat["rank"]
-        is_baseline = rank == 1
+            rank = cat["rank"]
+            is_baseline = rank == 1
 
-        # Determine time windows
-        w_start = None
-        w_end = None
-        if item.get("window_start"):
-            w_start = time.fromisoformat(item["window_start"])
-        if item.get("window_end"):
-            w_end = time.fromisoformat(item["window_end"])
+            w_start = None
+            w_end = None
+            if item.get("window_start"):
+                w_start = time.fromisoformat(item["window_start"])
+            if item.get("window_end"):
+                w_end = time.fromisoformat(item["window_end"])
 
-        # Override with Zmanim for baseline prayer items
-        if is_baseline and prayer_windows:
-            title_lower = item["title"].lower()
-            if title_lower in prayer_windows:
-                pw = prayer_windows[title_lower]
-                w_start = pw["start"]
-                w_end = pw["end"]
+            if is_baseline and prayer_windows:
+                title_lower = item["title"].lower()
+                if title_lower in prayer_windows:
+                    pw = prayer_windows[title_lower]
+                    w_start = pw["start"]
+                    w_end = pw["end"]
 
-        # Count completions in frequency window
-        completions_in_window = 0
-        if item.get("frequency_target"):
-            if item.get("external_source") == "strava" and item.get("external_data"):
-                workouts = item["external_data"]
-                if isinstance(workouts, list):
+            completions_in_window = 0
+            if item.get("frequency_target"):
+                if item.get("external_source") == "strava" and item.get("external_data"):
+                    workouts = item["external_data"]
+                    if isinstance(workouts, list):
+                        window_days = item.get("frequency_window_days", 7)
+                        cutoff = now - timedelta(days=window_days)
+                        completions_in_window = sum(
+                            1 for w in workouts
+                            if datetime.fromisoformat(w.get("start_date", "2000-01-01").replace("Z", "+00:00")) > cutoff
+                        )
+                else:
                     window_days = item.get("frequency_window_days", 7)
                     cutoff = now - timedelta(days=window_days)
+                    item_completions = completions_by_item.get(item["id"], [])
                     completions_in_window = sum(
-                        1 for w in workouts
-                        if datetime.fromisoformat(w.get("start_date", "2000-01-01").replace("Z", "+00:00")) > cutoff
+                        1 for ts in item_completions
+                        if datetime.fromisoformat(ts) > cutoff
                     )
-            else:
-                window_days = item.get("frequency_window_days", 7)
-                cutoff = now - timedelta(days=window_days)
-                item_completions = completions_by_item.get(item["id"], [])
-                completions_in_window = sum(
-                    1 for ts in item_completions
-                    if datetime.fromisoformat(ts) > cutoff
-                )
 
-        last_touched = None
-        if item.get("last_touched_at"):
-            last_touched = datetime.fromisoformat(item["last_touched_at"])
+            last_touched = None
+            if item.get("last_touched_at"):
+                last_touched = datetime.fromisoformat(item["last_touched_at"])
 
-        deferred_until = None
-        if item.get("deferred_until"):
-            deferred_until = datetime.fromisoformat(item["deferred_until"])
+            deferred_until = None
+            if item.get("deferred_until"):
+                deferred_until = datetime.fromisoformat(item["deferred_until"])
 
-        score = calculate_score(
-            rank=rank,
-            due_date=date.fromisoformat(item["due_date"]) if item.get("due_date") else None,
-            start_date=date.fromisoformat(item["start_date"]) if item.get("start_date") else None,
-            cadence_days=item.get("cadence_days"),
-            frequency_target=item.get("frequency_target"),
-            frequency_window_days=item.get("frequency_window_days"),
-            completions_in_window=completions_in_window,
-            last_touched_at=last_touched,
-            defer_count=item.get("defer_count", 0),
-            deferred_until=deferred_until,
-            window_start=w_start,
-            window_end=w_end,
-            external_source=item.get("external_source"),
-            external_data=item.get("external_data"),
-            is_baseline=is_baseline,
-            now=now,
-        )
+            score = calculate_score(
+                rank=rank,
+                due_date=date.fromisoformat(item["due_date"]) if item.get("due_date") else None,
+                start_date=date.fromisoformat(item["start_date"]) if item.get("start_date") else None,
+                cadence_days=item.get("cadence_days"),
+                frequency_target=item.get("frequency_target"),
+                frequency_window_days=item.get("frequency_window_days"),
+                completions_in_window=completions_in_window,
+                last_touched_at=last_touched,
+                defer_count=item.get("defer_count", 0),
+                deferred_until=deferred_until,
+                window_start=w_start,
+                window_end=w_end,
+                external_source=item.get("external_source"),
+                external_data=item.get("external_data"),
+                is_baseline=is_baseline,
+                now=now,
+                _debug_title=item.get("title"),
+            )
 
-        supabase.table("items").update(
-            {"priority_score": score, "score_updated_at": now_iso}
-        ).eq("id", item["id"]).execute()
+            supabase.table("items").update(
+                {"priority_score": score, "score_updated_at": now_iso}
+            ).eq("id", item["id"]).execute()
+            scored += 1
+        except Exception as e:
+            failed += 1
+            print(f"[score] FAILED for {item.get('title')!r}: {type(e).__name__}: {e}")
+
+    print(f"[score] rescore_all: scored={scored} failed={failed} total={len(items_resp.data)}")
