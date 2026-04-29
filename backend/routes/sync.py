@@ -38,9 +38,21 @@ def sync_all(
     # Ensure user has seed data
     seed_user_data(user_id, supabase)
 
-    # Sync integrations
-    canvas_count = sync_canvas(user_id, supabase)
-    strava_count = sync_strava(user_id, supabase)
+    # Sync integrations — failures must not block rescoring
+    canvas_count = 0
+    strava_count = 0
+    canvas_error = None
+    strava_error = None
+    try:
+        canvas_count = sync_canvas(user_id, supabase)
+    except Exception as e:
+        canvas_error = f"{type(e).__name__}: {e}"
+        print(f"[sync] canvas FAILED: {canvas_error}")
+    try:
+        strava_count = sync_strava(user_id, supabase)
+    except Exception as e:
+        strava_error = f"{type(e).__name__}: {e}"
+        print(f"[sync] strava FAILED: {strava_error}")
 
     # Rescore with GPS for Zmanim
     rescore_all(supabase, user_id, lat=lat, lng=lng, tz=tz)
@@ -48,6 +60,8 @@ def sync_all(
     return {
         "canvas_synced": canvas_count,
         "strava_synced": strava_count,
+        "canvas_error": canvas_error,
+        "strava_error": strava_error,
         "rescored": True,
     }
 
