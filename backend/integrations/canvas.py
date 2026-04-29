@@ -33,7 +33,7 @@ def sync_canvas(user_id: str, supabase) -> int:
     resp.raise_for_status()
     cal = Calendar.from_ical(resp.text)
 
-    cutoff = _actionable_days_from_now(14)
+    cutoff = _actionable_days_from_now(3)
     upserted = 0
     skipped_no_date = 0
     skipped_past_cutoff = 0
