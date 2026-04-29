@@ -20,8 +20,10 @@ class LocationService {
       if (permission == LocationPermission.deniedForever) return null;
 
       _cachedPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 5),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 5),
+        ),
       );
       return _cachedPosition;
     } catch (_) {
