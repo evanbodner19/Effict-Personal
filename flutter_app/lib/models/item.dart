@@ -17,6 +17,7 @@ class Item {
   final int deferCount;
   final String? deferredUntil;
   final bool isProject;
+  final int? completionsInWindow;
 
   Item({
     required this.id,
@@ -37,6 +38,7 @@ class Item {
     this.deferCount = 0,
     this.deferredUntil,
     this.isProject = false,
+    this.completionsInWindow,
   });
 
   factory Item.fromJson(Map<String, dynamic> json) {
@@ -60,6 +62,7 @@ class Item {
       deferCount: json['defer_count'] ?? 0,
       deferredUntil: json['deferred_until'],
       isProject: json['is_project'] ?? false,
+      completionsInWindow: json['completions_in_window'],
     );
   }
 }

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -102,6 +102,15 @@ def complete_item(item_id: str, user_id: str = Depends(get_current_user_id)):
 
         item = resp.data[0]
         is_recurring = item.get("cadence_days") or item.get("frequency_target")
+
+        # Recurring items with a due date that has passed get fully completed
+        # like a one-time task — they're done forever, not just for this cycle.
+        due_date_str = item.get("due_date")
+        past_due = bool(
+            due_date_str and date.fromisoformat(due_date_str) <= date.today()
+        )
+        if is_recurring and past_due:
+            is_recurring = False
 
         if is_recurring:
             # Recurring: update last_touched_at, insert completion

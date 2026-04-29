@@ -24,11 +24,18 @@ class PlanTab extends ConsumerWidget {
                 title: Text(cat.title),
                 initiallyExpanded: true,
                 children: (cat.items ?? []).map((item) {
+                  final subtitleParts = <String>[];
+                  if (item.dueDate != null) subtitleParts.add('Due: ${item.dueDate}');
+                  if (item.frequencyTarget != null) {
+                    subtitleParts.add(
+                      '${item.completionsInWindow ?? 0}/${item.frequencyTarget}',
+                    );
+                  }
                   return ListTile(
                     title: Text(item.title),
-                    subtitle: item.dueDate != null
-                        ? Text('Due: ${item.dueDate}')
-                        : null,
+                    subtitle: subtitleParts.isEmpty
+                        ? null
+                        : Text(subtitleParts.join(' • ')),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
