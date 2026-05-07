@@ -28,6 +28,7 @@ class _ItemFormState extends State<ItemForm> {
   DateTime? _dueDate;
   DateTime? _startDate;
   bool _isProject = false;
+  int _importance = 3;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _ItemFormState extends State<ItemForm> {
     _startDate =
         item?.startDate != null ? DateTime.tryParse(item!.startDate!) : null;
     _isProject = item?.isProject ?? false;
+    _importance = item?.importance ?? 3;
   }
 
   void _submit() {
@@ -72,6 +74,7 @@ class _ItemFormState extends State<ItemForm> {
       data['frequency_window_days'] = int.tryParse(_freqWindowController.text);
     }
     data['is_project'] = _isProject;
+    data['importance'] = _importance;
     widget.onSubmit(data);
   }
 
@@ -175,6 +178,31 @@ class _ItemFormState extends State<ItemForm> {
             title: const Text('Is Project'),
             value: _isProject,
             onChanged: (v) => setState(() => _isProject = v),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Importance: $_importance',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const Text(
+                  'How fast this climbs when nothing else is driving it',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Slider(
+                  value: _importance.toDouble(),
+                  min: 1,
+                  max: 5,
+                  divisions: 4,
+                  label: _importance.toString(),
+                  onChanged: (v) => setState(() => _importance = v.round()),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           FilledButton(

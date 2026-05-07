@@ -10,6 +10,12 @@ router = APIRouter(prefix="/api/categories", tags=["categories"])
 class CreateCategoryRequest(BaseModel):
     title: str
     rank: int
+    lead_time_days: int = 7
+
+
+class UpdateCategoryRequest(BaseModel):
+    title: str | None = None
+    lead_time_days: int | None = None
 
 
 class ReorderRequest(BaseModel):
@@ -97,9 +103,38 @@ def create_category(body: CreateCategoryRequest, user_id: str = Depends(get_curr
     supabase = get_supabase()
     resp = (
         supabase.table("categories")
-        .insert({"user_id": user_id, "title": body.title, "rank": body.rank})
+        .insert({
+            "user_id": user_id,
+            "title": body.title,
+            "rank": body.rank,
+            "lead_time_days": body.lead_time_days,
+        })
         .execute()
     )
+    return resp.data[0]
+
+
+@router.patch("/{category_id}")
+def update_category(
+    category_id: str,
+    body: UpdateCategoryRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    supabase = get_supabase()
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    resp = (
+        supabase.table("categories")
+        .update(updates)
+        .eq("id", category_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Category not found")
+    from backend.scoring import rescore_all
+    rescore_all(supabase, user_id)
     return resp.data[0]
 
 

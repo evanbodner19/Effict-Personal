@@ -125,12 +125,28 @@ class ApiService {
     );
   }
 
-  Future<void> createCategory(String title, int rank) async {
+  Future<void> createCategory(String title, int rank, {int leadTimeDays = 7}) async {
     final headers = await _headers();
     await http.post(
       Uri.parse('$backendUrl/api/categories'),
       headers: headers,
-      body: jsonEncode({'title': title, 'rank': rank}),
+      body: jsonEncode({
+        'title': title,
+        'rank': rank,
+        'lead_time_days': leadTimeDays,
+      }),
+    );
+  }
+
+  Future<void> updateCategory(String categoryId, {String? title, int? leadTimeDays}) async {
+    final headers = await _headers();
+    final body = <String, dynamic>{};
+    if (title != null) body['title'] = title;
+    if (leadTimeDays != null) body['lead_time_days'] = leadTimeDays;
+    await http.patch(
+      Uri.parse('$backendUrl/api/categories/$categoryId'),
+      headers: headers,
+      body: jsonEncode(body),
     );
   }
 

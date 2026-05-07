@@ -18,6 +18,7 @@ class Item {
   final String? deferredUntil;
   final bool isProject;
   final int? completionsInWindow;
+  final int importance;
 
   Item({
     required this.id,
@@ -39,6 +40,7 @@ class Item {
     this.deferredUntil,
     this.isProject = false,
     this.completionsInWindow,
+    this.importance = 3,
   });
 
   factory Item.fromJson(Map<String, dynamic> json) {
@@ -63,6 +65,7 @@ class Item {
       deferredUntil: json['deferred_until'],
       isProject: json['is_project'] ?? false,
       completionsInWindow: json['completions_in_window'],
+      importance: json['importance'] ?? 3,
     );
   }
 }

@@ -3,7 +3,10 @@ from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional
 
 SCHOOL_BUFFER_DAYS = 3
-BASE_SCORE = 0.75
+BASE_SCORE = 0.2
+AVOIDANCE_W = 0.3
+AGE_HORIZON_DAYS = 30
+DEFAULT_LEAD_TIME_DAYS = 7
 
 
 def category_weight(rank: int) -> float:
@@ -19,8 +22,21 @@ def _is_in_time_window(
     if window_start <= window_end:
         return window_start <= current_time <= window_end
     else:
-        # Overnight window (e.g., 20:00 to 02:00)
         return current_time >= window_start or current_time <= window_end
+
+
+def _demand(progress: float) -> float:
+    """Unified demand curve. 0 at progress<=0, linear to 1.0 at progress=1, log-growth after.
+
+    Same shape across due-date, recurring, frequency, and standalone items so no
+    category structurally dominates — but the most-overdue/oldest thing wins
+    regardless of type, with no ceiling.
+    """
+    if progress <= 0:
+        return 0.0
+    if progress <= 1:
+        return progress
+    return 1.0 + math.log(progress)
 
 
 def calculate_score(
@@ -40,6 +56,9 @@ def calculate_score(
     external_data: Optional[dict],
     is_baseline: bool,
     now: datetime,
+    importance: int = 3,
+    lead_time_days: int = DEFAULT_LEAD_TIME_DAYS,
+    created_at: Optional[datetime] = None,
     _debug_title: Optional[str] = None,
 ) -> float:
     today = date.today()
@@ -49,7 +68,6 @@ def calculate_score(
             print(f"[score] {_debug_title!r} -> 0 ({reason})")
         return 0
 
-    # Gating rules
     if start_date and today < start_date:
         return _gate(f"start_date {start_date} > today {today}")
 
@@ -62,46 +80,58 @@ def calculate_score(
     if frequency_target and completions_in_window >= frequency_target:
         return _gate(f"freq met {completions_in_window}/{frequency_target}")
 
-    # Urgency
-    urgency = 0.0
-    effective_due = due_date
-    if effective_due:
+    progresses = []
+
+    # Due-date: ramps up over lead_time, no cap on overdue tail.
+    if due_date:
+        effective_due = due_date
         if external_source == "canvas":
             effective_due = effective_due - timedelta(days=SCHOOL_BUFFER_DAYS)
         days_until = (effective_due - today).days
-        if days_until < 0:
-            urgency = 3.0 + abs(days_until) * 0.5
-        else:
-            urgency = 1.0 / (days_until + 1)
+        L = max(1, lead_time_days)
+        progresses.append(("due", (L - days_until) / L))
 
-    # Staleness
-    staleness = 0.0
-    if cadence_days and last_touched_at:
-        days_since = (now - last_touched_at).total_seconds() / 86400
-        if is_baseline:
-            staleness = 2 ** (days_since / cadence_days) - 1
-        else:
-            staleness = (days_since - cadence_days) / cadence_days
+    # Recurring cadence: progress = days_since / cadence.
+    if cadence_days and cadence_days > 0:
+        reference = last_touched_at or created_at
+        if reference:
+            days_since = (now - reference).total_seconds() / 86400
+            progresses.append(("cadence", days_since / cadence_days))
 
-    # Frequency deficit
-    freq_deficit = 0.0
+    # Frequency target: progress = deficit fraction.
     if frequency_target and frequency_target > 0:
-        count = completions_in_window
-        freq_deficit = max(0, (frequency_target - count) / frequency_target)
+        progresses.append(
+            ("freq", (frequency_target - completions_in_window) / frequency_target)
+        )
 
-    # Avoidance
-    avoidance = math.log(defer_count + 1)
+    if progresses:
+        # Hybrid items take whichever pressure is highest.
+        demand = max(_demand(p) for _, p in progresses)
+    elif created_at:
+        # Standalone: age-driven, scaled by importance.
+        age_days = (now - created_at).total_seconds() / 86400
+        imp = importance / 5.0
+        demand = imp * _demand(age_days / AGE_HORIZON_DAYS)
+    else:
+        demand = 0.0
 
-    # Total
-    raw = BASE_SCORE + urgency + staleness + freq_deficit + avoidance
-    score = category_weight(rank) * raw
+    avoidance = AVOIDANCE_W * math.log(defer_count + 1)
+    raw = BASE_SCORE + demand
+    score = category_weight(rank) * raw + avoidance
+
     if _debug_title is not None:
+        prog_str = " ".join(f"{k}={p:.2f}" for k, p in progresses) or "standalone"
         print(
-            f"[score] {_debug_title!r} rank={rank} u={urgency:.2f} "
-            f"s={staleness:.2f} fd={freq_deficit:.2f} av={avoidance:.2f} "
-            f"raw={raw:.2f} -> {score:.2f}"
+            f"[score] {_debug_title!r} rank={rank} {prog_str} "
+            f"demand={demand:.2f} av={avoidance:.2f} -> {score:.2f}"
         )
     return score
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    return datetime.fromisoformat(value)
 
 
 def rescore_item(supabase, item_id: str, user_id: str, lat: float = None, lng: float = None, tz: str = None):
@@ -127,6 +157,7 @@ def rescore_item(supabase, item_id: str, user_id: str, lat: float = None, lng: f
 
     rank = cat["rank"]
     is_baseline = rank == 1
+    lead_time_days = cat.get("lead_time_days") or DEFAULT_LEAD_TIME_DAYS
 
     w_start = time.fromisoformat(item["window_start"]) if item.get("window_start") else None
     w_end = time.fromisoformat(item["window_end"]) if item.get("window_end") else None
@@ -153,9 +184,6 @@ def rescore_item(supabase, item_id: str, user_id: str, lat: float = None, lng: f
         )
         completions_in_window = comp_resp.count or 0
 
-    last_touched = datetime.fromisoformat(item["last_touched_at"]) if item.get("last_touched_at") else None
-    deferred_until_val = datetime.fromisoformat(item["deferred_until"]) if item.get("deferred_until") else None
-
     score = calculate_score(
         rank=rank,
         due_date=date.fromisoformat(item["due_date"]) if item.get("due_date") else None,
@@ -164,15 +192,18 @@ def rescore_item(supabase, item_id: str, user_id: str, lat: float = None, lng: f
         frequency_target=item.get("frequency_target"),
         frequency_window_days=item.get("frequency_window_days"),
         completions_in_window=completions_in_window,
-        last_touched_at=last_touched,
+        last_touched_at=_parse_dt(item.get("last_touched_at")),
         defer_count=item.get("defer_count", 0),
-        deferred_until=deferred_until_val,
+        deferred_until=_parse_dt(item.get("deferred_until")),
         window_start=w_start,
         window_end=w_end,
         external_source=item.get("external_source"),
         external_data=item.get("external_data"),
         is_baseline=is_baseline,
         now=now,
+        importance=item.get("importance", 3),
+        lead_time_days=lead_time_days,
+        created_at=_parse_dt(item.get("created_at")),
     )
 
     supabase.table("items").update(
@@ -184,7 +215,6 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
     """Rescore all active items for a user. Updates priority_score in the database."""
     import zoneinfo
     now = datetime.now(timezone.utc)
-    # Convert to user's local timezone for time window comparisons
     if tz:
         try:
             local_tz = zoneinfo.ZoneInfo(tz)
@@ -192,11 +222,9 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
         except (KeyError, Exception):
             pass
 
-    # Fetch categories
     cat_resp = supabase.table("categories").select("*").eq("user_id", user_id).execute()
     categories = {c["id"]: c for c in cat_resp.data}
 
-    # Fetch active items (not completed)
     items_resp = (
         supabase.table("items")
         .select("*")
@@ -205,7 +233,6 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
         .execute()
     )
 
-    # Pre-fetch all recent completions in one query (last 30 days covers all windows)
     cutoff_30d = (now - timedelta(days=30)).isoformat()
     all_completions = (
         supabase.table("completions")
@@ -215,12 +242,10 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
         .execute()
     ).data
 
-    # Group completions by item_id
     completions_by_item: dict[str, list[str]] = {}
     for c in all_completions:
         completions_by_item.setdefault(c["item_id"], []).append(c["completed_at"])
 
-    # Compute Zmanim once if GPS provided
     prayer_windows = None
     if lat and lng and tz:
         from backend.integrations.zmanim import compute_prayer_windows
@@ -239,6 +264,7 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
 
             rank = cat["rank"]
             is_baseline = rank == 1
+            lead_time_days = cat.get("lead_time_days") or DEFAULT_LEAD_TIME_DAYS
 
             w_start = None
             w_end = None
@@ -274,14 +300,6 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
                         if datetime.fromisoformat(ts) > cutoff
                     )
 
-            last_touched = None
-            if item.get("last_touched_at"):
-                last_touched = datetime.fromisoformat(item["last_touched_at"])
-
-            deferred_until = None
-            if item.get("deferred_until"):
-                deferred_until = datetime.fromisoformat(item["deferred_until"])
-
             score = calculate_score(
                 rank=rank,
                 due_date=date.fromisoformat(item["due_date"]) if item.get("due_date") else None,
@@ -290,15 +308,18 @@ def rescore_all(supabase, user_id: str, lat: float = None, lng: float = None, tz
                 frequency_target=item.get("frequency_target"),
                 frequency_window_days=item.get("frequency_window_days"),
                 completions_in_window=completions_in_window,
-                last_touched_at=last_touched,
+                last_touched_at=_parse_dt(item.get("last_touched_at")),
                 defer_count=item.get("defer_count", 0),
-                deferred_until=deferred_until,
+                deferred_until=_parse_dt(item.get("deferred_until")),
                 window_start=w_start,
                 window_end=w_end,
                 external_source=item.get("external_source"),
                 external_data=item.get("external_data"),
                 is_baseline=is_baseline,
                 now=now,
+                importance=item.get("importance", 3),
+                lead_time_days=lead_time_days,
+                created_at=_parse_dt(item.get("created_at")),
                 _debug_title=item.get("title"),
             )
 

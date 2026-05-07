@@ -46,7 +46,10 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
                     child: const Icon(Icons.drag_handle),
                   ),
                   title: Text(cat.title),
-                  subtitle: Text('Rank ${cat.rank} - $itemCount items'),
+                  subtitle: Text(
+                    'Rank ${cat.rank} - $itemCount items - lead ${cat.leadTimeDays}d',
+                  ),
+                  onTap: () => _editCategory(cat),
                 ),
               );
             },
@@ -82,34 +85,93 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
   }
 
   Future<void> _addCategory() async {
-    final controller = TextEditingController();
-    final title = await showDialog<String>(
+    final result = await _showCategoryDialog(title: '', leadTimeDays: 7, isEdit: false);
+    if (result == null) return;
+    final api = ref.read(apiServiceProvider);
+    final newRank = (_localCategories?.length ?? 0) + 1;
+    await api.createCategory(result.title, newRank, leadTimeDays: result.leadTimeDays);
+    _localCategories = null;
+    ref.invalidate(categoriesProvider);
+    ref.invalidate(topItemsProvider);
+  }
+
+  Future<void> _editCategory(Category cat) async {
+    final result = await _showCategoryDialog(
+      title: cat.title,
+      leadTimeDays: cat.leadTimeDays,
+      isEdit: true,
+    );
+    if (result == null) return;
+    final api = ref.read(apiServiceProvider);
+    await api.updateCategory(
+      cat.id,
+      title: result.title != cat.title ? result.title : null,
+      leadTimeDays: result.leadTimeDays != cat.leadTimeDays ? result.leadTimeDays : null,
+    );
+    _localCategories = null;
+    ref.invalidate(categoriesProvider);
+    ref.invalidate(topItemsProvider);
+  }
+
+  Future<_CategoryDialogResult?> _showCategoryDialog({
+    required String title,
+    required int leadTimeDays,
+    required bool isEdit,
+  }) {
+    final controller = TextEditingController(text: title);
+    int leadTime = leadTimeDays;
+    return showDialog<_CategoryDialogResult>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Category'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Category name'),
-          autofocus: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: Text(isEdit ? 'Edit Category' : 'New Category'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(labelText: 'Category name'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              Text('Lead time: $leadTime days'),
+              const Text(
+                'How early due-date items in this category start ramping up',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              Slider(
+                value: leadTime.toDouble(),
+                min: 1,
+                max: 30,
+                divisions: 29,
+                label: '$leadTime d',
+                onChanged: (v) => setState(() => leadTime = v.round()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final t = controller.text.trim();
+                if (t.isEmpty) return;
+                Navigator.pop(ctx, _CategoryDialogResult(t, leadTime));
+              },
+              child: Text(isEdit ? 'Save' : 'Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
       ),
     );
-    if (title != null && title.isNotEmpty) {
-      final api = ref.read(apiServiceProvider);
-      final newRank = (_localCategories?.length ?? 0) + 1;
-      await api.createCategory(title, newRank);
-      _localCategories = null;
-      ref.invalidate(categoriesProvider);
-    }
   }
+}
+
+class _CategoryDialogResult {
+  final String title;
+  final int leadTimeDays;
+  _CategoryDialogResult(this.title, this.leadTimeDays);
 }

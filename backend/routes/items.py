@@ -20,6 +20,7 @@ class CreateItemRequest(BaseModel):
     frequency_window_days: Optional[int] = None
     window_start: Optional[str] = None
     window_end: Optional[str] = None
+    importance: int = 3
     is_project: bool = False
 
 
@@ -34,6 +35,7 @@ class UpdateItemRequest(BaseModel):
     frequency_window_days: Optional[int] = None
     window_start: Optional[str] = None
     window_end: Optional[str] = None
+    importance: Optional[int] = None
     is_project: Optional[bool] = None
 
 
