@@ -39,10 +39,10 @@ def test_demand_curve_shape():
     assert _demand(0) == 0
     assert _demand(0.5) == pytest.approx(0.5)
     assert _demand(1.0) == pytest.approx(1.0)
-    # Log tail is unbounded.
-    assert _demand(10) > _demand(2) > _demand(1.0)
-    # And keeps growing without ceiling.
-    assert _demand(100) > _demand(10) + 1.5
+    # Linear, no compression — growth rate past 1 matches growth rate before 1.
+    assert _demand(2.0) == pytest.approx(2.0)
+    assert _demand(10) == pytest.approx(10)
+    assert _demand(100) - _demand(10) == pytest.approx(90)
 
 
 def test_standalone_with_no_age_signal_is_low():
@@ -109,20 +109,35 @@ def test_due_ramps_with_lead_time():
     assert far < soon < today_due
 
 
-def test_overdue_grows_unbounded():
+def test_overdue_grows_linearly_unbounded():
     today = date.today()
     one_day = calculate_score(**_kwargs(rank=2, due_date=today - timedelta(days=1), lead_time_days=7))
     one_month = calculate_score(**_kwargs(rank=2, due_date=today - timedelta(days=30), lead_time_days=7))
     one_year = calculate_score(**_kwargs(rank=2, due_date=today - timedelta(days=365), lead_time_days=7))
     assert one_year > one_month > one_day
+    # Linear growth: doubling overdue days roughly doubles the marginal score
+    # past the lead-time floor (no log compression).
+    assert (one_year - one_day) > 10 * (one_month - one_day)
 
 
-def test_recurring_grows_with_staleness():
+def test_recurring_grows_with_staleness_then_caps():
     now = datetime.now(timezone.utc)
     fresh = calculate_score(**_kwargs(rank=1, cadence_days=2, last_touched_at=now - timedelta(hours=12), now=now))
     due = calculate_score(**_kwargs(rank=1, cadence_days=2, last_touched_at=now - timedelta(days=2), now=now))
     very_late = calculate_score(**_kwargs(rank=1, cadence_days=2, last_touched_at=now - timedelta(days=30), now=now))
-    assert very_late > due > fresh
+    abandoned = calculate_score(**_kwargs(rank=1, cadence_days=2, last_touched_at=now - timedelta(days=365), now=now))
+    # Up through "due", scores grow.
+    assert due > fresh
+    # Past one cycle, recurring caps — abandoned daily doesn't dominate.
+    assert very_late == pytest.approx(due, rel=0.001)
+    assert abandoned == pytest.approx(due, rel=0.001)
+
+
+def test_frequency_caps_at_full_deficit():
+    # Even if completions_in_window is negative (shouldn't happen but ensure cap).
+    score_zero = calculate_score(**_kwargs(rank=1, frequency_target=4, completions_in_window=0))
+    # Same target, same shape — capped at 1.0 progress regardless.
+    assert score_zero > 0
 
 
 def test_hybrid_takes_max_pressure():
@@ -165,6 +180,23 @@ def test_categories_balanced_in_normal_range():
     # All should be within ~3x of each other — no category dominates.
     scores = [standalone, due_today, recurring_due]
     assert max(scores) / min(scores) < 3.0
+
+
+def test_importance_scales_due_date_items():
+    today = date.today()
+    base = _kwargs(rank=2, due_date=today, lead_time_days=7)
+    low = calculate_score(**{**base, "importance": 1})
+    mid = calculate_score(**{**base, "importance": 3})
+    high = calculate_score(**{**base, "importance": 5})
+    assert low < mid < high
+
+
+def test_importance_scales_recurring_items():
+    now = datetime.now(timezone.utc)
+    base = _kwargs(rank=2, cadence_days=2, last_touched_at=now - timedelta(days=2), now=now)
+    low = calculate_score(**{**base, "importance": 1})
+    high = calculate_score(**{**base, "importance": 5})
+    assert high > low
 
 
 def test_avoidance_increases_with_defers():

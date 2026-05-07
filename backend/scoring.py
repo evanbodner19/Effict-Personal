@@ -26,17 +26,12 @@ def _is_in_time_window(
 
 
 def _demand(progress: float) -> float:
-    """Unified demand curve. 0 at progress<=0, linear to 1.0 at progress=1, log-growth after.
-
-    Same shape across due-date, recurring, frequency, and standalone items so no
-    category structurally dominates — but the most-overdue/oldest thing wins
-    regardless of type, with no ceiling.
-    """
+    """Unified demand curve. Linear in progress with no compression — same growth
+    rate past 1.0 as before it. Caller is responsible for capping progress on
+    categories where unbounded growth would be noise (recurring, frequency)."""
     if progress <= 0:
         return 0.0
-    if progress <= 1:
-        return progress
-    return 1.0 + math.log(progress)
+    return progress
 
 
 def calculate_score(
@@ -82,7 +77,7 @@ def calculate_score(
 
     progresses = []
 
-    # Due-date: ramps up over lead_time, no cap on overdue tail.
+    # Due-date: ramps up over lead_time, grows linearly forever past due.
     if due_date:
         effective_due = due_date
         if external_source == "canvas":
@@ -91,29 +86,31 @@ def calculate_score(
         L = max(1, lead_time_days)
         progresses.append(("due", (L - days_until) / L))
 
-    # Recurring cadence: progress = days_since / cadence.
+    # Recurring cadence: capped at 1.0. "60 missed dailies" is the same
+    # signal as "1 missed daily" — abandonment, not escalating urgency.
     if cadence_days and cadence_days > 0:
         reference = last_touched_at or created_at
         if reference:
             days_since = (now - reference).total_seconds() / 86400
-            progresses.append(("cadence", days_since / cadence_days))
+            progresses.append(("cadence", min(1.0, days_since / cadence_days)))
 
-    # Frequency target: progress = deficit fraction.
+    # Frequency target: capped at 1.0 for the same reason as cadence.
     if frequency_target and frequency_target > 0:
-        progresses.append(
-            ("freq", (frequency_target - completions_in_window) / frequency_target)
-        )
+        deficit = (frequency_target - completions_in_window) / frequency_target
+        progresses.append(("freq", min(1.0, deficit)))
 
     if progresses:
         # Hybrid items take whichever pressure is highest.
         demand = max(_demand(p) for _, p in progresses)
     elif created_at:
-        # Standalone: age-driven, scaled by importance.
+        # Standalone: age-driven, grows linearly forever.
         age_days = (now - created_at).total_seconds() / 86400
-        imp = importance / 5.0
-        demand = imp * _demand(age_days / AGE_HORIZON_DAYS)
+        demand = _demand(age_days / AGE_HORIZON_DAYS)
     else:
         demand = 0.0
+
+    # Importance is a global multiplier: 3 = neutral, 5 = 1.67x, 1 = 0.33x.
+    demand *= importance / 3.0
 
     avoidance = AVOIDANCE_W * math.log(defer_count + 1)
     raw = BASE_SCORE + demand
