@@ -5,6 +5,7 @@ from backend.db import get_supabase
 from backend.scoring import rescore_all
 from backend.integrations.strava import sync_strava
 from backend.integrations.canvas import sync_canvas
+from backend.integrations.cc_classes import sync_cc_classes
 from backend.seed import seed_user_data
 
 router = APIRouter(prefix="/api", tags=["sync"])
@@ -41,8 +42,10 @@ def sync_all(
     # Sync integrations — failures must not block rescoring
     canvas_count = 0
     strava_count = 0
+    cc_count = 0
     canvas_error = None
     strava_error = None
+    cc_error = None
     try:
         canvas_count = sync_canvas(user_id, supabase)
     except Exception as e:
@@ -53,6 +56,11 @@ def sync_all(
     except Exception as e:
         strava_error = f"{type(e).__name__}: {e}"
         print(f"[sync] strava FAILED: {strava_error}")
+    try:
+        cc_count = sync_cc_classes(user_id, supabase)
+    except Exception as e:
+        cc_error = f"{type(e).__name__}: {e}"
+        print(f"[sync] cc FAILED: {cc_error}")
 
     # Rescore with GPS for Zmanim
     rescore_all(supabase, user_id, lat=lat, lng=lng, tz=tz)
@@ -60,8 +68,10 @@ def sync_all(
     return {
         "canvas_synced": canvas_count,
         "strava_synced": strava_count,
+        "cc_synced": cc_count,
         "canvas_error": canvas_error,
         "strava_error": strava_error,
+        "cc_error": cc_error,
         "rescored": True,
     }
 
