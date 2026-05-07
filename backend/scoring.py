@@ -3,8 +3,8 @@ from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional
 
 SCHOOL_BUFFER_DAYS = 3
-BASE_SCORE = 0.2
-AVOIDANCE_W = 0.3
+BASE_SCORE = 0.75
+AVOIDANCE_W = 1.0
 AGE_HORIZON_DAYS = 30
 DEFAULT_LEAD_TIME_DAYS = 7
 

@@ -49,7 +49,7 @@ def test_standalone_with_no_age_signal_is_low():
     score = calculate_score(**_kwargs())
     # No created_at, no due, no recurrence → demand=0, only BASE_SCORE survives.
     assert score > 0
-    assert score < 0.3
+    assert score < 1.0
 
 
 def test_standalone_grows_with_age():
