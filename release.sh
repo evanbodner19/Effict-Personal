@@ -30,7 +30,11 @@ git tag "v$VERSION"
 git push && git push --tags
 
 # Create GitHub release with APK
-gh release create "v$VERSION" \
+GH="${GH:-gh}"
+if ! command -v "$GH" >/dev/null 2>&1; then
+  GH="/c/Program Files/GitHub CLI/gh.exe"
+fi
+"$GH" release create "v$VERSION" \
   flutter_app/build/app/outputs/flutter-apk/app-release.apk \
   --title "v$VERSION" \
   --notes "$NOTES"
