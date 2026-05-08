@@ -4,6 +4,7 @@ from backend.routes.categories import router as categories_router
 from backend.routes.items import router as items_router
 from backend.routes.top import router as top_router
 from backend.routes.sync import router as sync_router
+from backend.routes.pace import router as pace_router
 
 app = FastAPI(title="Effict API")
 
@@ -19,6 +20,7 @@ app.include_router(categories_router)
 app.include_router(items_router)
 app.include_router(top_router)
 app.include_router(sync_router)
+app.include_router(pace_router)
 
 
 @app.get("/health")

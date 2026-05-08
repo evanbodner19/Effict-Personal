@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'perform_tab.dart';
 import 'plan_tab.dart';
 import 'prioritize_tab.dart';
+import 'pace_tab.dart';
 import '../providers/app_state.dart';
 import '../services/update_service.dart';
 
@@ -43,6 +44,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final tabs = [
       const PerformTab(),
       const PlanTab(),
+      const PaceTab(),
       const PrioritizeTab(),
     ];
 
@@ -56,6 +58,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.play_arrow), label: 'Perform'),
           NavigationDestination(icon: Icon(Icons.list), label: 'Plan'),
+          NavigationDestination(icon: Icon(Icons.timer), label: 'Pace'),
           NavigationDestination(icon: Icon(Icons.sort), label: 'Prioritize'),
         ],
       ),

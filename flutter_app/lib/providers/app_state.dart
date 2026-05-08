@@ -14,3 +14,8 @@ final categoriesProvider = FutureProvider<List<Category>>((ref) async {
   final api = ref.read(apiServiceProvider);
   return api.getCategories();
 });
+
+final paceThisWeekProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.read(apiServiceProvider);
+  return api.getPaceThisWeek();
+});

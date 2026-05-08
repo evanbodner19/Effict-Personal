@@ -11,11 +11,13 @@ class CreateCategoryRequest(BaseModel):
     title: str
     rank: int
     lead_time_days: int = 7
+    weekly_hours_goal: float = 0
 
 
 class UpdateCategoryRequest(BaseModel):
     title: str | None = None
     lead_time_days: int | None = None
+    weekly_hours_goal: float | None = None
 
 
 class ReorderRequest(BaseModel):
@@ -108,6 +110,7 @@ def create_category(body: CreateCategoryRequest, user_id: str = Depends(get_curr
             "title": body.title,
             "rank": body.rank,
             "lead_time_days": body.lead_time_days,
+            "weekly_hours_goal": body.weekly_hours_goal,
         })
         .execute()
     )

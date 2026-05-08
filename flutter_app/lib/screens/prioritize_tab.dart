@@ -85,11 +85,21 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
   }
 
   Future<void> _addCategory() async {
-    final result = await _showCategoryDialog(title: '', leadTimeDays: 7, isEdit: false);
+    final result = await _showCategoryDialog(
+      title: '',
+      leadTimeDays: 7,
+      weeklyHoursGoal: 0,
+      isEdit: false,
+    );
     if (result == null) return;
     final api = ref.read(apiServiceProvider);
     final newRank = (_localCategories?.length ?? 0) + 1;
-    await api.createCategory(result.title, newRank, leadTimeDays: result.leadTimeDays);
+    await api.createCategory(
+      result.title,
+      newRank,
+      leadTimeDays: result.leadTimeDays,
+      weeklyHoursGoal: result.weeklyHoursGoal,
+    );
     _localCategories = null;
     ref.invalidate(categoriesProvider);
     ref.invalidate(topItemsProvider);
@@ -99,6 +109,7 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
     final result = await _showCategoryDialog(
       title: cat.title,
       leadTimeDays: cat.leadTimeDays,
+      weeklyHoursGoal: cat.weeklyHoursGoal,
       isEdit: true,
     );
     if (result == null) return;
@@ -106,7 +117,11 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
     await api.updateCategory(
       cat.id,
       title: result.title != cat.title ? result.title : null,
-      leadTimeDays: result.leadTimeDays != cat.leadTimeDays ? result.leadTimeDays : null,
+      leadTimeDays:
+          result.leadTimeDays != cat.leadTimeDays ? result.leadTimeDays : null,
+      weeklyHoursGoal: result.weeklyHoursGoal != cat.weeklyHoursGoal
+          ? result.weeklyHoursGoal
+          : null,
     );
     _localCategories = null;
     ref.invalidate(categoriesProvider);
@@ -116,39 +131,57 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
   Future<_CategoryDialogResult?> _showCategoryDialog({
     required String title,
     required int leadTimeDays,
+    required double weeklyHoursGoal,
     required bool isEdit,
   }) {
     final controller = TextEditingController(text: title);
     int leadTime = leadTimeDays;
+    double hoursGoal = weeklyHoursGoal;
     return showDialog<_CategoryDialogResult>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
           title: Text(isEdit ? 'Edit Category' : 'New Category'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                decoration: const InputDecoration(labelText: 'Category name'),
-                autofocus: true,
-              ),
-              const SizedBox(height: 16),
-              Text('Lead time: $leadTime days'),
-              const Text(
-                'How early due-date items in this category start ramping up',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              Slider(
-                value: leadTime.toDouble(),
-                min: 1,
-                max: 30,
-                divisions: 29,
-                label: '$leadTime d',
-                onChanged: (v) => setState(() => leadTime = v.round()),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(labelText: 'Category name'),
+                  autofocus: true,
+                ),
+                const SizedBox(height: 16),
+                Text('Lead time: $leadTime days'),
+                const Text(
+                  'How early due-date items in this category start ramping up',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Slider(
+                  value: leadTime.toDouble(),
+                  min: 1,
+                  max: 30,
+                  divisions: 29,
+                  label: '$leadTime d',
+                  onChanged: (v) => setState(() => leadTime = v.round()),
+                ),
+                const SizedBox(height: 8),
+                Text('Weekly goal: ${hoursGoal.toStringAsFixed(1)} h'),
+                const Text(
+                  'Hours per week to spend on this category in Pace mode (0 = no goal, hidden from Pace)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Slider(
+                  value: hoursGoal.clamp(0, 40),
+                  min: 0,
+                  max: 40,
+                  divisions: 80,
+                  label: '${hoursGoal.toStringAsFixed(1)} h',
+                  onChanged: (v) => setState(() => hoursGoal = v),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -159,7 +192,10 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
               onPressed: () {
                 final t = controller.text.trim();
                 if (t.isEmpty) return;
-                Navigator.pop(ctx, _CategoryDialogResult(t, leadTime));
+                Navigator.pop(
+                  ctx,
+                  _CategoryDialogResult(t, leadTime, hoursGoal),
+                );
               },
               child: Text(isEdit ? 'Save' : 'Create'),
             ),
@@ -173,5 +209,6 @@ class _PrioritizeTabState extends ConsumerState<PrioritizeTab> {
 class _CategoryDialogResult {
   final String title;
   final int leadTimeDays;
-  _CategoryDialogResult(this.title, this.leadTimeDays);
+  final double weeklyHoursGoal;
+  _CategoryDialogResult(this.title, this.leadTimeDays, this.weeklyHoursGoal);
 }

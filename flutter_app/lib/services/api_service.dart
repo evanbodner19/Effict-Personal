@@ -125,7 +125,12 @@ class ApiService {
     );
   }
 
-  Future<void> createCategory(String title, int rank, {int leadTimeDays = 7}) async {
+  Future<void> createCategory(
+    String title,
+    int rank, {
+    int leadTimeDays = 7,
+    double weeklyHoursGoal = 0,
+  }) async {
     final headers = await _headers();
     await http.post(
       Uri.parse('$backendUrl/api/categories'),
@@ -134,19 +139,58 @@ class ApiService {
         'title': title,
         'rank': rank,
         'lead_time_days': leadTimeDays,
+        'weekly_hours_goal': weeklyHoursGoal,
       }),
     );
   }
 
-  Future<void> updateCategory(String categoryId, {String? title, int? leadTimeDays}) async {
+  Future<void> updateCategory(
+    String categoryId, {
+    String? title,
+    int? leadTimeDays,
+    double? weeklyHoursGoal,
+  }) async {
     final headers = await _headers();
     final body = <String, dynamic>{};
     if (title != null) body['title'] = title;
     if (leadTimeDays != null) body['lead_time_days'] = leadTimeDays;
+    if (weeklyHoursGoal != null) body['weekly_hours_goal'] = weeklyHoursGoal;
     await http.patch(
       Uri.parse('$backendUrl/api/categories/$categoryId'),
       headers: headers,
       body: jsonEncode(body),
+    );
+  }
+
+  Future<Map<String, dynamic>> getPaceThisWeek() async {
+    final headers = await _headers();
+    final resp = await http.get(
+      Uri.parse('$backendUrl/api/pace/this-week'),
+      headers: headers,
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to get pace: ${resp.body}');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> startSession(String categoryId) async {
+    final headers = await _headers();
+    final resp = await http.post(
+      Uri.parse('$backendUrl/api/categories/$categoryId/sessions/start'),
+      headers: headers,
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('Failed to start session: ${resp.body}');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  Future<void> stopSession(String sessionId) async {
+    final headers = await _headers();
+    await http.post(
+      Uri.parse('$backendUrl/api/sessions/$sessionId/stop'),
+      headers: headers,
     );
   }
 
