@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     strava_client_secret: str = ""
     strava_refresh_token: str = ""
     canvas_ical_url: str = ""
+    gmail_client_id: str = ""
+    gmail_client_secret: str = ""
+    gmail_refresh_token: str = ""
 
     class Config:
         env_file = ".env"
