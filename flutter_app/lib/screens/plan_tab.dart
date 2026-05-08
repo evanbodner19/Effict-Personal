@@ -31,28 +31,40 @@ class PlanTab extends ConsumerWidget {
                       '${item.completionsInWindow ?? 0}/${item.frequencyTarget}',
                     );
                   }
-                  return ListTile(
-                    title: Text(item.title),
-                    subtitle: subtitleParts.isEmpty
-                        ? null
-                        : Text(subtitleParts.join(' • ')),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (item.isProject)
-                          const Padding(
-                            padding: EdgeInsets.only(right: 8),
-                            child: Icon(Icons.folder, size: 18),
-                          ),
-                        Text(
-                          item.priorityScore.toStringAsFixed(1),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                      ],
+                  return Dismissible(
+                    key: ValueKey('item-${item.id}'),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 16),
+                      child: const Icon(Icons.delete, color: Colors.white),
                     ),
-                    onTap: () => _showEditSheet(context, ref, item, categories),
+                    confirmDismiss: (_) => _confirmDelete(context, item.title),
+                    onDismissed: (_) => _deleteItem(ref, item),
+                    child: ListTile(
+                      title: Text(item.title),
+                      subtitle: subtitleParts.isEmpty
+                          ? null
+                          : Text(subtitleParts.join(' • ')),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (item.isProject)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(Icons.folder, size: 18),
+                            ),
+                          Text(
+                            item.priorityScore.toStringAsFixed(1),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                      onTap: () => _showEditSheet(context, ref, item, categories),
+                    ),
                   );
                 }).toList(),
               );
@@ -90,6 +102,35 @@ class PlanTab extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<bool> _confirmDelete(BuildContext context, String title) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete item?'),
+        content: Text('Delete "$title"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteItem(WidgetRef ref, Item item) async {
+    final api = ref.read(apiServiceProvider);
+    await api.deleteItem(item.id);
+    ref.invalidate(categoriesProvider);
+    ref.invalidate(topItemsProvider);
   }
 
   void _showEditSheet(
