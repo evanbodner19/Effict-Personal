@@ -18,7 +18,7 @@ GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 ACTION_LABEL_NAME = "Action"
 TARGET_CATEGORY_TITLE = "Todo List"
-MAX_MESSAGES_PER_SYNC = 100
+MAX_MESSAGES_PER_SYNC = 500
 
 
 def _refresh_access_token() -> str:
@@ -47,7 +47,9 @@ def _find_label_id(access_token: str, name: str) -> Optional[str]:
     return None
 
 
-def _list_message_ids(access_token: str, label_id: str) -> list[str]:
+def _list_message_ids(access_token: str, label_id: str) -> tuple[list[str], bool]:
+    """Return (message_ids, hit_cap). hit_cap=True means we may have missed
+    items beyond the cap, so the caller must NOT auto-complete based on absence."""
     ids: list[str] = []
     page_token: Optional[str] = None
     while True:
@@ -64,11 +66,11 @@ def _list_message_ids(access_token: str, label_id: str) -> list[str]:
         for m in data.get("messages", []) or []:
             ids.append(m["id"])
             if len(ids) >= MAX_MESSAGES_PER_SYNC:
-                return ids
+                return ids, True
         page_token = data.get("nextPageToken")
         if not page_token:
             break
-    return ids
+    return ids, False
 
 
 def _get_message(access_token: str, msg_id: str) -> dict:
@@ -136,25 +138,8 @@ def sync_gmail(user_id: str, supabase) -> int:
         print(f"[gmail] no label named {ACTION_LABEL_NAME!r}")
         return 0
 
-    msg_ids = _list_message_ids(access_token, label_id)
-    if not msg_ids:
-        print("[gmail] no messages with Action label")
-        return 0
-
-    # Fetch existing gmail items in one query so we don't re-create.
-    existing_resp = (
-        supabase.table("items")
-        .select("id, external_data, completed_at")
-        .eq("user_id", user_id)
-        .eq("external_source", "gmail")
-        .execute()
-    )
-    seen_ids: set[str] = set()
-    for row in existing_resp.data or []:
-        ed = row.get("external_data") or {}
-        gid = ed.get("gmail_msg_id") if isinstance(ed, dict) else None
-        if gid:
-            seen_ids.add(gid)
+    msg_ids, hit_cap = _list_message_ids(access_token, label_id)
+    labeled_ids = set(msg_ids)
 
     cat_resp = (
         supabase.table("categories")
@@ -171,49 +156,86 @@ def sync_gmail(user_id: str, supabase) -> int:
         None,
     )
     if not target_cat:
-        # Fall back to lowest-priority category (highest rank) so emails don't crowd
-        # higher-priority lanes if the user has renamed/removed "Todo List".
         target_cat = max(cat_resp.data, key=lambda c: c.get("rank") or 0)
         print(f"[gmail] no {TARGET_CATEGORY_TITLE!r} category — using {target_cat.get('title')!r}")
     target_cat_id = target_cat["id"]
 
+    existing_resp = (
+        supabase.table("items")
+        .select("id, external_data, completed_at")
+        .eq("user_id", user_id)
+        .eq("external_source", "gmail")
+        .execute()
+    )
+    existing_by_msg: dict[str, dict] = {}
+    for row in existing_resp.data or []:
+        ed = row.get("external_data") or {}
+        gid = ed.get("gmail_msg_id") if isinstance(ed, dict) else None
+        if gid:
+            existing_by_msg[gid] = row
+
+    today_iso = date.today().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     created = 0
-    skipped_existing = 0
+    revived = 0
+    completed = 0
+    skipped_active = 0
+
+    # Pass 1: walk the labeled list. Create new ones, revive completed ones.
     for msg_id in msg_ids:
-        if msg_id in seen_ids:
-            skipped_existing += 1
-            continue
-        try:
-            msg = _get_message(access_token, msg_id)
-        except httpx.HTTPError as e:
-            print(f"[gmail] failed to fetch msg {msg_id}: {e}")
-            continue
+        existing = existing_by_msg.get(msg_id)
+        if existing is None:
+            try:
+                msg = _get_message(access_token, msg_id)
+            except httpx.HTTPError as e:
+                print(f"[gmail] failed to fetch msg {msg_id}: {e}")
+                continue
+            thread_id = msg.get("threadId", msg_id)
+            link = f"https://mail.google.com/mail/u/0/#all/{thread_id}"
+            supabase.table("items").insert(
+                {
+                    "user_id": user_id,
+                    "title": _subject(msg),
+                    "notes": f"From: {_sender(msg)}\n{link}",
+                    "category_id": target_cat_id,
+                    "due_date": _email_date(msg).isoformat(),
+                    "external_source": "gmail",
+                    "external_data": {
+                        "gmail_msg_id": msg_id,
+                        "gmail_thread_id": thread_id,
+                    },
+                }
+            ).execute()
+            created += 1
+        elif existing.get("completed_at"):
+            # Revive: re-labeled means new info, treat as fresh-actionable.
+            supabase.table("items").update(
+                {"completed_at": None, "due_date": today_iso}
+            ).eq("id", existing["id"]).execute()
+            revived += 1
+        else:
+            skipped_active += 1
 
-        thread_id = msg.get("threadId", msg_id)
-        title = _subject(msg)
-        sender = _sender(msg)
-        due = _email_date(msg)
-        link = f"https://mail.google.com/mail/u/0/#all/{thread_id}"
-        notes = f"From: {sender}\n{link}"
-
-        supabase.table("items").insert(
-            {
-                "user_id": user_id,
-                "title": title,
-                "notes": notes,
-                "category_id": target_cat_id,
-                "due_date": due.isoformat(),
-                "external_source": "gmail",
-                "external_data": {
-                    "gmail_msg_id": msg_id,
-                    "gmail_thread_id": thread_id,
-                },
-            }
-        ).execute()
-        created += 1
+    # Pass 2: anything in our DB that's no longer labeled gets auto-completed,
+    # but ONLY if we know we got the full label list (didn't hit the pagination cap).
+    if not hit_cap:
+        for gid, row in existing_by_msg.items():
+            if gid in labeled_ids:
+                continue
+            if row.get("completed_at"):
+                continue
+            supabase.table("items").update({"completed_at": now_iso}).eq(
+                "id", row["id"]
+            ).execute()
+            completed += 1
+    elif existing_by_msg:
+        print(
+            f"[gmail] hit cap ({MAX_MESSAGES_PER_SYNC}) — skipping auto-complete pass"
+        )
 
     print(
-        f"[gmail] action_messages={len(msg_ids)} created={created} "
-        f"skipped_existing={skipped_existing}"
+        f"[gmail] labeled={len(msg_ids)} created={created} revived={revived} "
+        f"auto_completed={completed} skipped_active={skipped_active} hit_cap={hit_cap}"
     )
-    return created
+    return created + revived
