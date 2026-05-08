@@ -17,7 +17,7 @@ from backend.config import settings
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 ACTION_LABEL_NAME = "Action"
-SCHOOL_CATEGORY_RANK = 2  # email items go into the school category by default
+TARGET_CATEGORY_TITLE = "Todo List"
 MAX_MESSAGES_PER_SYNC = 100
 
 
@@ -158,7 +158,7 @@ def sync_gmail(user_id: str, supabase) -> int:
 
     cat_resp = (
         supabase.table("categories")
-        .select("id, rank")
+        .select("id, title, rank")
         .eq("user_id", user_id)
         .order("rank")
         .execute()
@@ -167,9 +167,14 @@ def sync_gmail(user_id: str, supabase) -> int:
         print("[gmail] user has no categories")
         return 0
     target_cat = next(
-        (c for c in cat_resp.data if c.get("rank") == SCHOOL_CATEGORY_RANK),
-        cat_resp.data[0],
+        (c for c in cat_resp.data if (c.get("title") or "").lower() == TARGET_CATEGORY_TITLE.lower()),
+        None,
     )
+    if not target_cat:
+        # Fall back to lowest-priority category (highest rank) so emails don't crowd
+        # higher-priority lanes if the user has renamed/removed "Todo List".
+        target_cat = max(cat_resp.data, key=lambda c: c.get("rank") or 0)
+        print(f"[gmail] no {TARGET_CATEGORY_TITLE!r} category — using {target_cat.get('title')!r}")
     target_cat_id = target_cat["id"]
 
     created = 0
